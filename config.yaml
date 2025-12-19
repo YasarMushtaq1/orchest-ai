@@ -1,0 +1,119 @@
+# OrchestAI Configuration
+
+# Planner Model Architecture
+planner:
+  instruction_encoder:
+    model_name: "t5-base"  # or "bert-base-uncased"
+    hidden_size: 768
+    max_length: 512
+    
+  task_decomposer:
+    hidden_size: 512
+    num_layers: 3
+    dropout: 0.1
+    
+  workflow_graph_generator:
+    gnn_type: "GCN"  # GCN, GAT, or GraphSAGE
+    num_layers: 3
+    hidden_dim: 256
+    output_dim: 128
+    dropout: 0.1
+    
+  model_selector:
+    state_dim: 512
+    action_dim: 8  # number of available worker models
+    hidden_dims: [256, 128]
+    dropout: 0.1
+
+# Worker Models
+worker_models:
+  - name: "gpt-4"
+    type: "llm"
+    cost_per_token: 0.03
+    latency_ms: 500
+    
+  - name: "gpt-3.5-turbo"
+    type: "llm"
+    cost_per_token: 0.002
+    latency_ms: 200
+    
+  - name: "llama-3-8b"
+    type: "llm"
+    cost_per_token: 0.001
+    latency_ms: 300
+    
+  - name: "clip-vit-base"
+    type: "vision"
+    cost_per_token: 0.001
+    latency_ms: 150
+    
+  - name: "whisper-base"
+    type: "audio"
+    cost_per_token: 0.001
+    latency_ms: 250
+    
+  - name: "code-llama-7b"
+    type: "code"
+    cost_per_token: 0.001
+    latency_ms: 400
+    
+  - name: "document-processor"
+    type: "document"
+    cost_per_token: 0.0005
+    latency_ms: 100
+    
+  - name: "data-analyzer"
+    type: "data"
+    cost_per_token: 0.0005
+    latency_ms: 200
+
+# Training Configuration
+training:
+  phase1_supervised:
+    batch_size: 32
+    learning_rate: 1e-4
+    num_epochs: 50
+    lambda_dag: 0.3  # DAG validity constraint weight
+    train_data_size: 300
+    synthetic_augmentations: 1000
+    
+  phase2_rl:
+    algorithm: "PPO"
+    learning_rate: 3e-5
+    num_episodes: 1000
+    max_steps_per_episode: 50
+    gamma: 0.99
+    epsilon: 0.2  # exploration rate
+    alpha: 10.0  # success reward weight
+    beta: 0.1    # cost penalty weight
+    gamma_latency: 0.01  # latency penalty weight
+    shaped_reward: 0.1  # reward per successful sub-task
+    
+  phase3_continuous:
+    online_learning: true
+    update_frequency: 100  # update every N executions
+    learning_rate: 1e-5
+
+# Evaluation
+evaluation:
+  benchmark_tasks:
+    - "presentation_generation"
+    - "data_analysis"
+    - "content_summarization"
+    - "document_processing"
+    - "multimodal_creation"
+  
+  metrics:
+    - "task_success_rate"
+    - "cost_efficiency"
+    - "latency"
+    - "workflow_validity"
+
+# System Configuration
+system:
+  max_workflow_depth: 10
+  max_parallel_tasks: 5
+  timeout_seconds: 300
+  output_schema: "json"
+  log_level: "INFO"
+
