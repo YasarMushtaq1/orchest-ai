@@ -28,42 +28,42 @@ planner:
 # Worker Models
 worker_models:
   - name: "gpt-4"
-    type: "llm"
+    model_type: "llm"
     cost_per_token: 0.03
     latency_ms: 500
     
   - name: "gpt-3.5-turbo"
-    type: "llm"
+    model_type: "llm"
     cost_per_token: 0.002
     latency_ms: 200
     
   - name: "llama-3-8b"
-    type: "llm"
+    model_type: "llm"
     cost_per_token: 0.001
     latency_ms: 300
     
   - name: "clip-vit-base"
-    type: "vision"
+    model_type: "vision"
     cost_per_token: 0.001
     latency_ms: 150
     
   - name: "whisper-base"
-    type: "audio"
+    model_type: "audio"
     cost_per_token: 0.001
     latency_ms: 250
     
   - name: "code-llama-7b"
-    type: "code"
+    model_type: "code"
     cost_per_token: 0.001
     latency_ms: 400
     
   - name: "document-processor"
-    type: "document"
+    model_type: "document"
     cost_per_token: 0.0005
     latency_ms: 100
     
   - name: "data-analyzer"
-    type: "data"
+    model_type: "data"
     cost_per_token: 0.0005
     latency_ms: 200
 
