@@ -63,3 +63,13 @@ results/
 evaluation_results.json
 outputs/
 
+# External Repositories (for analysis only, not part of OrchestAI)
+autogen-main/
+HuggingGPT-main/
+ReAct-master/
+DeepSeek-MoE-main/
+
+# Analysis and improvement documentation (internal use)
+ANALYSIS.md
+IMPROVEMENTS.md
+

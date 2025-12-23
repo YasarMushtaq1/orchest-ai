@@ -4,9 +4,11 @@ Orchestration System: Main system that coordinates Planner and Worker models
 
 import torch
 import time
+import asyncio
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from orchestai.planner.planner_model import PlannerModel
 from orchestai.worker.worker_layer import WorkerModelLayer
@@ -22,6 +24,8 @@ class ExecutionResult:
     total_latency_ms: float
     workflow_graph: Optional[Any] = None
     error: Optional[str] = None
+    retry_count: int = 0
+    task_metrics: Optional[Dict[int, Dict[str, Any]]] = None  # Per-task metrics
 
 
 class OrchestrationSystem:
@@ -56,6 +60,13 @@ class OrchestrationSystem:
         
         # Execution history for learning
         self.execution_history = deque(maxlen=1000)
+        
+        # Retry configuration
+        self.max_retries = 3
+        self.retry_delay = 1.0  # seconds
+        
+        # Thread pool for parallel execution
+        self.executor = ThreadPoolExecutor(max_workers=max_parallel_tasks)
     
     def execute(
         self,
@@ -89,17 +100,22 @@ class OrchestrationSystem:
             adjacency = planner_outputs["workflow_graph"]["adjacency"][0]
             num_subtasks = len(model_selections)
             
-            # 2. Execute workflow following topological order
+            # 2. Execute workflow following topological order with parallel execution
             execution_order = self._topological_sort(adjacency, num_subtasks)
             
             # Track execution state
             task_outputs: Dict[int, Any] = {}
             task_results: Dict[int, WorkerOutput] = {}
+            task_metrics: Dict[int, Dict[str, Any]] = {}
             total_cost = 0.0
             total_latency = 0.0
+            retry_count = 0
             
-            # Execute tasks in topological order
-            for task_id in execution_order:
+            # Execute tasks with parallel execution where possible
+            completed_tasks = set()
+            ready_tasks = set(execution_order[:1] if execution_order else [])  # Start with first task
+            
+            while ready_tasks or len(completed_tasks) < num_subtasks:
                 # Check timeout
                 if time.time() - start_time > self.timeout_seconds:
                     return ExecutionResult(
@@ -108,44 +124,91 @@ class OrchestrationSystem:
                         total_cost=total_cost,
                         total_latency_ms=total_latency,
                         error="Execution timeout",
+                        retry_count=retry_count,
+                        task_metrics=task_metrics,
                     )
                 
-                # Get worker selection for this task
-                worker_id = model_selections[task_id]
+                # Execute ready tasks in parallel (up to max_parallel_tasks)
+                tasks_to_execute = list(ready_tasks)[:self.max_parallel_tasks]
+                execution_results = {}
                 
-                # Prepare task input (could use outputs from dependencies)
-                task_input = self._prepare_task_input(
-                    task_id,
-                    input_data,
-                    task_results,
+                # Execute tasks in parallel
+                futures = {}
+                for task_id in tasks_to_execute:
+                    future = self.executor.submit(
+                        self._execute_single_task,
+                        task_id,
+                        model_selections[task_id],
+                        input_data,
+                        task_results,
+                        adjacency,
+                    )
+                    futures[future] = task_id
+                
+                # Collect results
+                for future in as_completed(futures):
+                    task_id = futures[future]
+                    try:
+                        worker_output, task_metric = future.result()
+                        execution_results[task_id] = (worker_output, task_metric)
+                    except Exception as e:
+                        # Task failed, try retry
+                        worker_output = WorkerOutput(
+                            content=None,
+                            metadata={},
+                            cost=0.0,
+                            latency_ms=0.0,
+                            success=False,
+                            error=str(e),
+                        )
+                        execution_results[task_id] = (worker_output, {"error": str(e)})
+                
+                # Process results
+                for task_id, (worker_output, task_metric) in execution_results.items():
+                    task_metrics[task_id] = task_metric
+                    
+                    # Retry logic for failed tasks
+                    if not worker_output.success and retry_count < self.max_retries:
+                        retry_count += 1
+                        time.sleep(self.retry_delay)
+                        # Retry the task
+                        worker_output, task_metric = self._execute_single_task(
+                            task_id,
+                            model_selections[task_id],
+                            input_data,
+                            task_results,
+                            adjacency,
+                        )
+                        task_metrics[task_id] = task_metric
+                    
+                    # Store results
+                    task_results[task_id] = worker_output
+                    task_outputs[task_id] = worker_output.content
+                    completed_tasks.add(task_id)
+                    
+                    # Accumulate metrics
+                    total_cost += worker_output.cost
+                    total_latency += worker_output.latency_ms
+                    
+                    # Check for failures after retry
+                    if not worker_output.success:
+                        return ExecutionResult(
+                            success=False,
+                            outputs=task_outputs,
+                            total_cost=total_cost,
+                            total_latency_ms=total_latency,
+                            error=worker_output.error or f"Task {task_id} execution failed after retries",
+                            retry_count=retry_count,
+                            task_metrics=task_metrics,
+                        )
+                
+                # Update ready tasks for next iteration
+                ready_tasks = self._get_ready_tasks(
+                    execution_order,
+                    completed_tasks,
                     adjacency,
+                    num_subtasks,
                 )
-                
-                # Execute task
-                task_description = f"subtask_{task_id}"
-                worker_output = self.worker_layer.execute_task(
-                    worker_id=worker_id,
-                    task=task_description,
-                    data=task_input,
-                )
-                
-                # Store results
-                task_results[task_id] = worker_output
-                task_outputs[task_id] = worker_output.content
-                
-                # Accumulate metrics
-                total_cost += worker_output.cost
-                total_latency += worker_output.latency_ms
-                
-                # Check for failures
-                if not worker_output.success:
-                    return ExecutionResult(
-                        success=False,
-                        outputs=task_outputs,
-                        total_cost=total_cost,
-                        total_latency_ms=total_latency,
-                        error=worker_output.error or "Task execution failed",
-                    )
             
             # 3. Combine outputs (could be customized based on task type)
             final_output = self._combine_outputs(task_outputs, execution_order)
@@ -169,6 +232,8 @@ class OrchestrationSystem:
                 total_cost=total_cost,
                 total_latency_ms=total_latency,
                 workflow_graph=planner_outputs.get("graphs", [None])[0] if return_graph else None,
+                retry_count=retry_count,
+                task_metrics=task_metrics,
             )
             
         except Exception as e:
@@ -280,6 +345,103 @@ class OrchestrationSystem:
             return task_outputs.get(last_task, None)
         return None
     
+    def _execute_single_task(
+        self,
+        task_id: int,
+        worker_id: int,
+        input_data: Any,
+        task_results: Dict[int, WorkerOutput],
+        adjacency: torch.Tensor,
+    ) -> Tuple[WorkerOutput, Dict[str, Any]]:
+        """
+        Execute a single task with error handling.
+        
+        Returns:
+            Tuple of (WorkerOutput, task_metrics)
+        """
+        task_start_time = time.time()
+        
+        try:
+            # Prepare task input
+            task_input = self._prepare_task_input(
+                task_id,
+                input_data,
+                task_results,
+                adjacency,
+            )
+            
+            # Execute task
+            task_description = f"subtask_{task_id}"
+            worker_output = self.worker_layer.execute_task(
+                worker_id=worker_id,
+                task=task_description,
+                data=task_input,
+            )
+            
+            task_metric = {
+                "task_id": task_id,
+                "worker_id": worker_id,
+                "latency_ms": worker_output.latency_ms,
+                "cost": worker_output.cost,
+                "success": worker_output.success,
+                "timestamp": task_start_time,
+            }
+            
+            return worker_output, task_metric
+            
+        except Exception as e:
+            return WorkerOutput(
+                content=None,
+                metadata={},
+                cost=0.0,
+                latency_ms=(time.time() - task_start_time) * 1000,
+                success=False,
+                error=str(e),
+            ), {
+                "task_id": task_id,
+                "worker_id": worker_id,
+                "error": str(e),
+                "timestamp": task_start_time,
+            }
+    
+    def _get_ready_tasks(
+        self,
+        execution_order: List[int],
+        completed_tasks: set,
+        adjacency: torch.Tensor,
+        num_subtasks: int,
+    ) -> set:
+        """
+        Get tasks that are ready to execute (all dependencies completed).
+        
+        Args:
+            execution_order: Topological order of tasks
+            completed_tasks: Set of completed task IDs
+            adjacency: Workflow adjacency matrix
+            num_subtasks: Total number of subtasks
+            
+        Returns:
+            Set of ready task IDs
+        """
+        ready = set()
+        
+        for task_id in execution_order:
+            if task_id in completed_tasks:
+                continue
+            
+            # Check if all dependencies are completed
+            deps_satisfied = True
+            for dep_id in range(num_subtasks):
+                if adjacency[dep_id, task_id].item() > 0.5:  # dep_id is dependency of task_id
+                    if dep_id not in completed_tasks:
+                        deps_satisfied = False
+                        break
+            
+            if deps_satisfied:
+                ready.add(task_id)
+        
+        return ready
+    
     def _record_execution(
         self,
         instruction: str,
@@ -293,4 +455,9 @@ class OrchestrationSystem:
             "result": execution_result,
             "timestamp": time.time(),
         })
+    
+    def __del__(self):
+        """Cleanup thread pool"""
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=False)
 

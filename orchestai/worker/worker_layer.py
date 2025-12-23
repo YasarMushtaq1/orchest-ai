@@ -7,6 +7,7 @@ from orchestai.worker.base_worker import BaseWorker, WorkerConfig, WorkerOutput
 from orchestai.worker.llm_worker import LLMWorker
 from orchestai.worker.vision_worker import VisionWorker
 from orchestai.worker.audio_worker import AudioWorker
+from orchestai.worker.model_discovery import ModelDiscovery
 
 
 class WorkerModelLayer:
@@ -14,12 +15,19 @@ class WorkerModelLayer:
     Manages all worker models and provides unified interface for task execution.
     """
     
-    def __init__(self, worker_configs: List[Dict[str, Any]]):
+    def __init__(
+        self,
+        worker_configs: List[Dict[str, Any]],
+        enable_discovery: bool = False,
+        discovery_config: Optional[Dict[str, Any]] = None,
+    ):
         """
         Initialize worker layer with configurations.
         
         Args:
             worker_configs: List of worker configuration dictionaries
+            enable_discovery: Whether to enable dynamic model discovery
+            discovery_config: Configuration for model discovery
         """
         self.workers: Dict[str, BaseWorker] = {}
         self.worker_ids: List[int] = []
@@ -49,6 +57,14 @@ class WorkerModelLayer:
         self.worker_to_id = {
             name: idx for idx, name in enumerate(self.workers.keys())
         }
+        
+        # Model discovery (optional)
+        self.model_discovery: Optional[ModelDiscovery] = None
+        if enable_discovery:
+            self.model_discovery = ModelDiscovery(
+                huggingface_token=discovery_config.get("huggingface_token") if discovery_config else None,
+                local_model_endpoint=discovery_config.get("local_model_endpoint") if discovery_config else None,
+            )
     
     def get_worker(self, worker_id: int) -> Optional[BaseWorker]:
         """
