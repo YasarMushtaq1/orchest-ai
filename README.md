@@ -750,7 +750,7 @@ MIT License - see LICENSE file for details
 If you use OrchestAI in your research, please cite:
 
 ```bibtex
-@misc{orchestai2024,
+@misc{orchestai,
   title={OrchestAI: Autonomous Multi-Model Orchestration via Learned Task Planning},
   author={Mushtaq, Sayed Yasar Ahmad},
   year={2024},
