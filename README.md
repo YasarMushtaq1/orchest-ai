@@ -753,7 +753,7 @@ If you use OrchestAI in your research, please cite:
 @misc{orchestai,
   title={OrchestAI: Autonomous Multi-Model Orchestration via Learned Task Planning},
   author={Mushtaq, Sayed Yasar Ahmad},
-  year={2024},
+  year={2025},
   url={https://github.com/YasarMushtaq1/orchest-ai}
 }
 ```
