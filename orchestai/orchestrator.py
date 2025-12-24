@@ -61,6 +61,9 @@ class OrchestrationSystem:
         # Execution history for learning
         self.execution_history = deque(maxlen=1000)
         
+        # Execution logger for training data collection (lazy import to avoid circular dependency)
+        self.execution_logger = None
+        
         # Retry configuration
         self.max_retries = 3
         self.retry_delay = 1.0  # seconds
@@ -214,16 +217,32 @@ class OrchestrationSystem:
             final_output = self._combine_outputs(task_outputs, execution_order)
             
             # Record execution for learning
+            final_result = ExecutionResult(
+                success=True,
+                outputs=task_outputs,
+                total_cost=total_cost,
+                total_latency_ms=total_latency,
+                workflow_graph=planner_outputs.get("graphs", [None])[0] if return_graph else None,
+                retry_count=retry_count,
+                task_metrics=task_metrics,
+            )
+            
             self._record_execution(
                 instruction=instruction,
                 planner_outputs=planner_outputs,
-                execution_result=ExecutionResult(
-                    success=True,
-                    outputs=task_outputs,
-                    total_cost=total_cost,
-                    total_latency_ms=total_latency,
-                    workflow_graph=planner_outputs.get("graphs", [None])[0] if return_graph else None,
-                ),
+                execution_result=final_result,
+            )
+            
+            # Log execution for training data (lazy initialization)
+            if self.execution_logger is None:
+                from orchestai.utils.execution_logger import ExecutionLogger
+                self.execution_logger = ExecutionLogger()
+            
+            self.execution_logger.log_execution(
+                instruction=instruction,
+                planner_outputs=planner_outputs,
+                execution_result=final_result,
+                success=True,
             )
             
             return ExecutionResult(
@@ -313,15 +332,29 @@ class OrchestrationSystem:
         
         # Combine dependency outputs with initial input
         if dependency_outputs:
-            if initial_input is not None:
-                return {
-                    "initial": initial_input,
-                    "dependencies": dependency_outputs,
-                }
+            # If we have dependencies, use the first dependency output as data
+            # (workers expect string data)
+            if len(dependency_outputs) == 1:
+                data = dependency_outputs[0]
+                # If data is a dict with "text" key, extract it
+                if isinstance(data, dict) and "text" in data:
+                    return data["text"]
+                elif isinstance(data, str):
+                    return data
+                else:
+                    return str(data)
             else:
-                return dependency_outputs[0] if len(dependency_outputs) == 1 else dependency_outputs
+                # Multiple dependencies - combine them
+                combined = " ".join(str(dep) for dep in dependency_outputs)
+                return combined
         else:
-            return initial_input
+            # No dependencies - use initial input
+            if initial_input is None:
+                return ""
+            # If initial_input is a dict, extract text field
+            if isinstance(initial_input, dict):
+                return initial_input.get("text", str(initial_input))
+            return str(initial_input)
     
     def _combine_outputs(
         self,
