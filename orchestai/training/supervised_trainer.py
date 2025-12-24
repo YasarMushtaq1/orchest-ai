@@ -8,7 +8,12 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from typing import Dict, List, Optional, Any
 from tqdm import tqdm
-import wandb
+
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
 
 
 class WorkflowDataset(Dataset):
@@ -83,9 +88,10 @@ class SupervisedTrainer:
         self.planner.to(self.device)
         
         # Optimizer
+        learning_rate = float(config.get("learning_rate", 1e-4))
         self.optimizer = optim.AdamW(
             self.planner.parameters(),
-            lr=config.get("learning_rate", 1e-4),
+            lr=learning_rate,
             weight_decay=1e-5,
         )
         
@@ -95,12 +101,13 @@ class SupervisedTrainer:
             mode="min",
             factor=0.5,
             patience=5,
-            verbose=True,
         )
         
-        self.use_wandb = use_wandb
-        if use_wandb:
+        self.use_wandb = use_wandb and WANDB_AVAILABLE
+        if self.use_wandb:
             wandb.init(project="orchestai", config=config)
+        elif use_wandb and not WANDB_AVAILABLE:
+            print("Warning: wandb requested but not installed. Continuing without wandb logging.")
     
     def train(
         self,

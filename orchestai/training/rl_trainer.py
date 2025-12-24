@@ -9,7 +9,12 @@ import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
 from collections import deque
 from tqdm import tqdm
-import wandb
+
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
 
 
 class RLTrainer:
@@ -59,9 +64,11 @@ class RLTrainer:
         # Experience buffer
         self.experience_buffer = deque(maxlen=10000)
         
-        self.use_wandb = use_wandb
-        if use_wandb:
+        self.use_wandb = use_wandb and WANDB_AVAILABLE
+        if self.use_wandb:
             wandb.init(project="orchestai-rl", config=config)
+        elif use_wandb and not WANDB_AVAILABLE:
+            print("Warning: wandb requested but not installed. Continuing without wandb logging.")
     
     def train(
         self,
