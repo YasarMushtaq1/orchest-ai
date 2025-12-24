@@ -1,4 +1,4 @@
-# Option 3: Real-World Testing & Training Guide
+# Real-World Testing & Training Guide
 
 Complete guide for connecting real APIs, collecting execution logs, and training the OrchestAI planner.
 
@@ -6,18 +6,19 @@ Complete guide for connecting real APIs, collecting execution logs, and training
 
 1. [Overview](#overview)
 2. [Setup](#setup)
-3. [Step 1: Connect Real APIs](#step-1-connect-real-apis)
-4. [Step 2: Run Executions & Collect Data](#step-2-run-executions--collect-data)
-5. [Step 3: Prepare Training Data](#step-3-prepare-training-data)
-6. [Step 4: Train the Planner](#step-4-train-the-planner)
-7. [Step 5: Evaluate & Iterate](#step-5-evaluate--iterate)
-8. [Troubleshooting](#troubleshooting)
+3. [OpenAI API Setup & Usage](#openai-api-setup--usage)
+4. [Step 1: Connect Real APIs](#step-1-connect-real-apis)
+5. [Step 2: Run Executions & Collect Data](#step-2-run-executions--collect-data)
+6. [Step 3: Prepare Training Data](#step-3-prepare-training-data)
+7. [Step 4: Train the Planner](#step-4-train-the-planner)
+8. [Step 5: Evaluate & Iterate](#step-5-evaluate--iterate)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
 
-Option 3 combines:
+This guide covers:
 - **Real API connections** for immediate testing
 - **Automatic execution logging** for data collection
 - **Training data preparation** from logs
@@ -56,26 +57,148 @@ python test_real_api.py
 
 ---
 
-## Step 1: Connect Real APIs
+## OpenAI API Setup & Usage
 
-### OpenAI API Setup
+### Getting Your OpenAI API Key
 
-The system automatically uses OpenAI API if `OPENAI_API_KEY` is set.
+1. **Visit OpenAI Platform**: https://platform.openai.com/
+2. **Sign Up/Log In**: Create account or log in
+3. **Navigate to API Keys**: https://platform.openai.com/api-keys
+4. **Create New Key**: Click "Create new secret key"
+5. **Copy Key**: Save it immediately (starts with `sk-`)
+6. **Add Billing**: Go to https://platform.openai.com/account/billing and add payment method
+   - You get $5 free credit to start
+   - GPT-3.5 Turbo: ~$0.0015 per 1K tokens (very cheap)
+   - GPT-4: ~$0.03 per 1K tokens
 
-**Set API Key:**
+### Setting Up API Key in OrchestAI
+
+**Option 1: Using .env file (Recommended)**
+
+1. Create `.env` file in project root:
+```bash
+echo 'OPENAI_API_KEY=sk-your-key-here' > .env
+```
+
+2. The system automatically loads it (no code changes needed)
+
+**Option 2: Environment Variable**
+
 ```bash
 export OPENAI_API_KEY='sk-your-key-here'
 ```
 
-**Or in Python:**
+**Option 3: In Python Code**
+
 ```python
 import os
 os.environ["OPENAI_API_KEY"] = "sk-your-key-here"
 ```
 
+### How OrchestAI Uses OpenAI API
+
+**Automatic Detection:**
+- System checks for `OPENAI_API_KEY` environment variable
+- If found → Uses real OpenAI API
+- If not found → Falls back to mock responses
+
+**Model Mapping:**
+- `gpt-4` → GPT-4
+- `gpt-3.5-turbo` → GPT-3.5 Turbo (default)
+- `gpt-4o` → GPT-4o
+- Other names → GPT-3.5 Turbo
+
+**API Usage:**
+```python
+# OrchestAI automatically calls OpenAI API like this:
+from openai import OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+response = client.chat.completions.create(
+    model="gpt-3.5-turbo",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Your task text here"}
+    ],
+    max_tokens=500,
+    temperature=0.7,
+)
+```
+
+**Cost Tracking:**
+- OrchestAI automatically tracks API costs
+- Costs calculated based on actual token usage
+- Stored in `ExecutionResult.total_cost`
+
+### Verifying API Connection
+
+```python
+from orchestai.utils.config_loader import load_config
+from orchestai.utils.setup import setup_system
+import os
+
+# Check if key is loaded
+print("API Key:", "Set" if os.getenv("OPENAI_API_KEY") else "Not set")
+
+# Test with real API
+config = load_config("config.yaml")
+orchestrator = setup_system(config)
+
+result = orchestrator.execute(
+    instruction="Summarize: Machine learning is AI.",
+    input_data={"text": "Machine learning is AI."}
+)
+
+# If using real API, you'll see:
+# - Real response text (not mock)
+# - Actual API costs (not estimates)
+# - Real latency (usually 1-5 seconds)
+print(f"Success: {result.success}")
+print(f"Cost: ${result.total_cost:.4f}")  # Real cost if API connected
+print(f"Latency: {result.total_latency_ms:.2f} ms")  # Real latency
+```
+
+### API Key Security
+
+**Important:**
+- ✅ `.env` file is automatically ignored by git (in `.gitignore`)
+- ✅ Never commit API keys to repository
+- ✅ Use environment variables in production
+- ✅ Rotate keys if exposed
+
+**If Key is Exposed:**
+1. Go to https://platform.openai.com/api-keys
+2. Revoke the exposed key
+3. Create a new key
+4. Update `.env` file
+
+### Cost Management
+
+**Monitor Usage:**
+- Check usage at: https://platform.openai.com/usage
+- Set usage limits: https://platform.openai.com/account/billing/limits
+
+**Cost Optimization:**
+- Use GPT-3.5 Turbo for simple tasks (cheaper)
+- Use GPT-4 only when needed (better quality)
+- OrchestAI's RL training learns to optimize costs automatically
+
+---
+
+## Step 1: Connect Real APIs
+
+### Automatic API Connection
+
+The system **automatically** uses OpenAI API if `OPENAI_API_KEY` is set in `.env` file or environment variable.
+
+**No code changes needed!** Just:
+1. Add API key to `.env` file (see OpenAI API Setup section above)
+2. Run your code - it will automatically use real API
+
 ### How It Works
 
 The `LLMWorker` automatically:
+- Loads API key from `.env` file on import
 - Detects if OpenAI is available
 - Uses real API if key is set
 - Falls back to mock if no key
@@ -83,27 +206,31 @@ The `LLMWorker` automatically:
 
 **Model Mapping:**
 - `gpt-4` → GPT-4
-- `gpt-3.5-turbo` → GPT-3.5 Turbo
+- `gpt-3.5-turbo` → GPT-3.5 Turbo (default)
 - `gpt-4o` → GPT-4o
-- Others → GPT-3.5 Turbo (default)
+- Others → GPT-3.5 Turbo
 
 ### Verify API Connection
 
-```python
-from orchestai.utils.config_loader import load_config
-from orchestai.utils.setup import setup_system
+```bash
+# Quick test
+python test_real_api.py
+```
 
-config = load_config("config.yaml")
-orchestrator = setup_system(config)
+**Expected Output with Real API:**
+```
+✅ OpenAI API key found
+✅ Execution completed
+   Success: True
+   Cost: $0.00XX  (real API cost)
+   Latency: XXXX ms (real API latency)
+   Outputs: Real response text (not mock)
+```
 
-# This will use real API if key is set
-result = orchestrator.execute(
-    instruction="Summarize: Machine learning is AI.",
-    input_data={"text": "Machine learning is AI."}
-)
-
-print(f"Success: {result.success}")
-print(f"Cost: ${result.total_cost:.4f}")  # Real API cost if connected
+**Expected Output without API Key:**
+```
+⚠️  WARNING: OPENAI_API_KEY not set
+   Will use mock responses
 ```
 
 ---
