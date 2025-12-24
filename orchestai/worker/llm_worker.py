@@ -5,6 +5,7 @@ LLM Worker: Interface for Large Language Model workers
 import time
 import os
 from typing import Dict, Any, Optional
+from pathlib import Path
 from orchestai.worker.base_worker import BaseWorker, WorkerConfig, WorkerOutput
 
 # Try to import OpenAI (optional)
@@ -13,6 +14,26 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Load .env file from project root
+    env_file = Path(__file__).parent.parent.parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+except ImportError:
+    # Fallback: manual loading if python-dotenv not installed
+    def load_env_file():
+        env_file = Path(__file__).parent.parent.parent / ".env"
+        if env_file.exists():
+            with open(env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
+                        os.environ[key.strip()] = value.strip()
+    load_env_file()
 
 
 class LLMWorker(BaseWorker):
@@ -150,29 +171,50 @@ class LLMWorker(BaseWorker):
                 }
                 model = model_map.get(self.name, "gpt-3.5-turbo")
                 
-                # Build prompt
-                prompt = f"{task}: {text}"
-                
-                # Call OpenAI API
-                response = openai.ChatCompletion.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": f"You are a helpful assistant. {task}."},
-                        {"role": "user", "content": text}
-                    ],
-                    max_tokens=parameters.get("max_tokens", 500),
-                    temperature=parameters.get("temperature", 0.7),
-                )
-                
-                result = response.choices[0].message.content
-                
-                # Update cost based on actual usage
-                usage = response.usage
-                actual_cost = (usage.prompt_tokens * 0.001 + usage.completion_tokens * 0.002) / 1000
-                # Store for later retrieval
-                self.last_api_cost = actual_cost
-                
-                return result
+                # Use new OpenAI API (v1.0+)
+                try:
+                    # Try new API format
+                    from openai import OpenAI
+                    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                    
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": f"You are a helpful assistant. {task}."},
+                            {"role": "user", "content": text}
+                        ],
+                        max_tokens=parameters.get("max_tokens", 500),
+                        temperature=parameters.get("temperature", 0.7),
+                    )
+                    
+                    result = response.choices[0].message.content
+                    
+                    # Update cost based on actual usage
+                    usage = response.usage
+                    # Cost per 1K tokens (approximate)
+                    input_cost = 0.0015 if "gpt-3.5" in model else 0.03
+                    output_cost = 0.002 if "gpt-3.5" in model else 0.06
+                    actual_cost = (usage.prompt_tokens * input_cost + usage.completion_tokens * output_cost) / 1000
+                    # Store for later retrieval
+                    self.last_api_cost = actual_cost
+                    
+                    return result
+                except AttributeError:
+                    # Fallback to old API format if needed
+                    response = openai.ChatCompletion.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": f"You are a helpful assistant. {task}."},
+                            {"role": "user", "content": text}
+                        ],
+                        max_tokens=parameters.get("max_tokens", 500),
+                        temperature=parameters.get("temperature", 0.7),
+                    )
+                    result = response.choices[0].message.content
+                    usage = response.usage
+                    actual_cost = (usage.prompt_tokens * 0.001 + usage.completion_tokens * 0.002) / 1000
+                    self.last_api_cost = actual_cost
+                    return result
             except Exception as e:
                 # Fallback to mock if API call fails
                 print(f"API call failed, using mock: {e}")

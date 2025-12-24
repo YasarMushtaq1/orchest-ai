@@ -63,6 +63,11 @@ results/
 evaluation_results.json
 outputs/
 
+# Environment variables
+.env
+.env.local
+.env.*.local
+
 # External Repositories (for analysis only, not part of OrchestAI)
 autogen-main/
 HuggingGPT-main/
