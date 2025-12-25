@@ -232,7 +232,7 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 ## Notes
 
 - The model was trained on CPU (no GPU)
-- Training took ~8.5 hours for 50 epochs
+- Training took ~ 50 minutes for 50 epochs
 - Best model was at epoch 12
 - Model is ready for Phase 2 RL fine-tuning
 
