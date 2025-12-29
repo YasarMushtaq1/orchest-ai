@@ -177,5 +177,5 @@ If you have questions about:
 
 All documentation is up-to-date as of the latest codebase. Documentation is maintained alongside code changes to ensure accuracy.
 
-**Last Updated**: December 2024
+**Last Updated**: December 2025
 

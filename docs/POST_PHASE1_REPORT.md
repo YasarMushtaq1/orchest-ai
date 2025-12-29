@@ -22,8 +22,8 @@ Phase 1 supervised pre-training has been successfully completed. The Planner Mod
 - **Epochs:** 50
 - **Batch Size:** 32
 - **Learning Rate:** 1e-4
-- **Device:** CPU
-- **Training Time:** ~10 minutes per epoch (total ~8.5 hours)
+- **Device:** CPU 
+- **Training Time:** ~1 minutes per epoch (total ~50 minutes)
 
 **Training Process:**
 1. ✅ Loaded 170 training examples from `training_data.json`
