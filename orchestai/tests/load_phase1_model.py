@@ -7,25 +7,34 @@ import torch
 import sys
 import os
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root to path (go up from orchestai/tests/ to project root)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
 from orchestai.utils.config_loader import load_config
 from orchestai.utils.setup import setup_system
 
 
-def load_phase1_model(checkpoint_path="checkpoints/phase1_best_model.pth"):
+def load_phase1_model(checkpoint_path=None):
     """
     Load Phase 1 trained model.
     
     Args:
-        checkpoint_path: Path to checkpoint file
+        checkpoint_path: Path to checkpoint file (default: checkpoints/phase1_best_model.pth)
         
     Returns:
         OrchestrationSystem with trained planner
     """
+    # Get project root
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    # Set default checkpoint path if not provided
+    if checkpoint_path is None:
+        checkpoint_path = os.path.join(project_root, "checkpoints", "phase1_best_model.pth")
+    
     # Load configuration
-    config = load_config("config.yaml")
+    config_path = os.path.join(project_root, "config.yaml")
+    config = load_config(config_path)
     
     # Setup system
     orchestrator = setup_system(config)

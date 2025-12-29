@@ -74,7 +74,7 @@ training:
     learning_rate: 1e-4
     num_epochs: 50
     lambda_dag: 0.3  # DAG validity constraint weight
-    train_data_size: 300
+    train_data_size: 1000  # Target: 500-1000 examples for stronger Phase 1
     synthetic_augmentations: 1000
     
   phase2_rl:

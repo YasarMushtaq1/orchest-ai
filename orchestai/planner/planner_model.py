@@ -153,21 +153,57 @@ class PlannerModel(nn.Module):
         
         # Task type prediction loss
         if "task_types" in targets:
-            pred_task_types = outputs["decomposition"]["task_types"]
-            target_task_types = targets["task_types"]
-            ce_loss += nn.functional.cross_entropy(
-                pred_task_types.view(-1, pred_task_types.size(-1)),
-                target_task_types.view(-1),
-            )
+            pred_task_types = outputs["decomposition"]["task_types"]  # [batch_size, num_subtasks, num_task_types]
+            target_task_types = targets["task_types"]  # [batch_size, num_subtasks]
+            
+            # Ensure shapes match
+            if pred_task_types.size(0) != target_task_types.size(0) or pred_task_types.size(1) != target_task_types.size(1):
+                # Handle shape mismatch by taking minimum
+                min_batch = min(pred_task_types.size(0), target_task_types.size(0))
+                min_subtasks = min(pred_task_types.size(1), target_task_types.size(1))
+                pred_task_types = pred_task_types[:min_batch, :min_subtasks, :]
+                target_task_types = target_task_types[:min_batch, :min_subtasks]
+            
+            # Flatten for loss computation
+            pred_flat = pred_task_types.view(-1, pred_task_types.size(-1))  # [batch*num_subtasks, num_task_types]
+            target_flat = target_task_types.view(-1)  # [batch*num_subtasks]
+            
+            # Mask out invalid targets (-1 values, which indicate padding or invalid)
+            valid_mask = target_flat >= 0
+            if valid_mask.any():
+                pred_valid = pred_flat[valid_mask]
+                target_valid = target_flat[valid_mask]
+                ce_loss += nn.functional.cross_entropy(
+                    pred_valid,
+                    target_valid,
+                )
         
         # Model selection loss
         if "model_selections" in targets:
-            pred_probs = outputs["model_selection_probs"]
-            target_selections = targets["model_selections"]
-            ce_loss += nn.functional.cross_entropy(
-                pred_probs.view(-1, pred_probs.size(-1)),
-                target_selections.view(-1),
-            )
+            pred_probs = outputs["model_selection_probs"]  # [batch_size, num_subtasks, action_dim]
+            target_selections = targets["model_selections"]  # [batch_size, num_subtasks]
+            
+            # Ensure shapes match
+            if pred_probs.size(0) != target_selections.size(0) or pred_probs.size(1) != target_selections.size(1):
+                # Handle shape mismatch by taking minimum
+                min_batch = min(pred_probs.size(0), target_selections.size(0))
+                min_subtasks = min(pred_probs.size(1), target_selections.size(1))
+                pred_probs = pred_probs[:min_batch, :min_subtasks, :]
+                target_selections = target_selections[:min_batch, :min_subtasks]
+            
+            # Flatten for loss computation
+            pred_flat = pred_probs.view(-1, pred_probs.size(-1))  # [batch*num_subtasks, action_dim]
+            target_flat = target_selections.view(-1)  # [batch*num_subtasks]
+            
+            # Mask out invalid targets (-1 values, which indicate padding or invalid)
+            valid_mask = target_flat >= 0
+            if valid_mask.any():
+                pred_valid = pred_flat[valid_mask]
+                target_valid = target_flat[valid_mask]
+                ce_loss += nn.functional.cross_entropy(
+                    pred_valid,
+                    target_valid,
+                )
         
         # DAG validity loss (topological ordering constraint)
         dag_loss = self._compute_dag_loss(outputs["workflow_graph"]["adjacency"])
