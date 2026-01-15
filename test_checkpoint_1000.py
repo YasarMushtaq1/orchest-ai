@@ -46,6 +46,18 @@ def load_model(checkpoint_path: str):
     config = load_config("config.yaml")
     planner_config = config["planner"]
     
+    # Load checkpoint
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = checkpoint.get("model_state_dict", checkpoint)
+
+    # Infer action_dim from checkpoint for flexibility
+    action_dim = None
+    for key, tensor in state_dict.items():
+        if "model_selector.policy_network" in key and key.endswith("weight") and tensor.ndim == 2:
+            action_dim = tensor.shape[0]
+    if action_dim is not None:
+        planner_config["model_selector"]["action_dim"] = int(action_dim)
+    
     # Create model
     planner = PlannerModel(
         instruction_encoder_config=planner_config["instruction_encoder"],
@@ -54,9 +66,7 @@ def load_model(checkpoint_path: str):
         model_selector_config=planner_config["model_selector"],
     )
     
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    planner.load_state_dict(checkpoint["model_state_dict"])
+    planner.load_state_dict(state_dict)
     planner.eval()
     
     print(f"✅ Model loaded from epoch {checkpoint['epoch']}")

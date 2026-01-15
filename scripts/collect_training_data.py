@@ -16,7 +16,7 @@ import time
 from orchestai.utils.config_loader import load_config
 from orchestai.utils.setup import setup_system
 
-# Diverse task templates for data collection - 200 TEMPLATES for maximum diversity
+# Diverse task templates for data collection - baseline templates
 TASK_TEMPLATES = [
     # Summarization tasks (simple) - 10 variants (reduced to reach 200)
     ("Summarize this text: {}", "text"),
@@ -247,6 +247,52 @@ TASK_TEMPLATES = [
     ("Create a system design for {}", "topic"),
 ]
 
+
+def build_worker_aware_templates(config):
+    """
+    Build extra templates based on worker_routing keywords to cover all workers.
+    """
+    routing = config.get("worker_routing", {})
+    keywords = routing.get("keywords", {})
+    worker_types = routing.get("types", [])
+    templates = []
+
+    # Single-step templates per worker type
+    for worker_type in worker_types:
+        keys = keywords.get(worker_type, [])
+        for key in keys:
+            templates.append((f"{key} about {{}}", "topic"))
+            templates.append((f"Please {key}: {{}}", "text"))
+
+    # Multi-step mixed templates (combine 2-3 worker types)
+    if worker_types:
+        for i, t1 in enumerate(worker_types):
+            keys1 = keywords.get(t1, [])
+            if not keys1:
+                continue
+            for j, t2 in enumerate(worker_types):
+                if i == j:
+                    continue
+                keys2 = keywords.get(t2, [])
+                if not keys2:
+                    continue
+                templates.append((f"{keys1[0]} about {{}} then {keys2[0]} of it", "topic"))
+        # triple chain
+        for t1 in worker_types:
+            keys1 = keywords.get(t1, [])
+            if not keys1:
+                continue
+            for t2 in worker_types:
+                keys2 = keywords.get(t2, [])
+                if not keys2:
+                    continue
+                for t3 in worker_types:
+                    keys3 = keywords.get(t3, [])
+                    if not keys3:
+                        continue
+                    templates.append((f"{keys1[0]} about {{}} and then {keys2[0]} then {keys3[0]}", "topic"))
+    return templates
+
 # Expanded sample data for diversity
 SAMPLE_TEXTS = [
     # AI/ML topics
@@ -350,6 +396,11 @@ def collect_data(num_executions=50, batch_size=100, resume=False):
     config = load_config("config.yaml")
     orchestrator = setup_system(config)
     print("✅ System ready\n")
+
+    # Add worker-aware templates to cover all worker types
+    worker_templates = build_worker_aware_templates(config)
+    templates = TASK_TEMPLATES + worker_templates
+    print(f"✅ Loaded {len(templates)} task templates (base: {len(TASK_TEMPLATES)}, worker-aware: {len(worker_templates)})")
     
     # Collect data
     print(f"\n📊 Collection Plan:")
@@ -367,7 +418,7 @@ def collect_data(num_executions=50, batch_size=100, resume=False):
     for i in range(num_executions):
         # Select random task template
         import random
-        template, data_type = random.choice(TASK_TEMPLATES)
+        template, data_type = random.choice(templates)
         
         # Fill template with sample data
         if data_type == "text":

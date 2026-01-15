@@ -25,6 +25,15 @@ def setup_system(config: Dict[str, Any], device: Optional[torch.device] = None) 
     
     # Extract configurations
     planner_config = config["planner"]
+    routing_config = config.get("worker_routing", {})
+    routing_mode = routing_config.get("routing_mode", "type_only")
+    worker_types = routing_config.get("types", [])
+    levels = int(routing_config.get("levels", 5))
+    if worker_types:
+        if routing_mode == "type_level":
+            planner_config["model_selector"]["action_dim"] = len(worker_types) * levels
+        else:
+            planner_config["model_selector"]["action_dim"] = len(worker_types)
     worker_configs = config["worker_models"]
     system_config = config.get("system", {})
     
@@ -38,7 +47,7 @@ def setup_system(config: Dict[str, Any], device: Optional[torch.device] = None) 
     planner.to(device)
     
     # Initialize Worker Model Layer
-    worker_layer = WorkerModelLayer(worker_configs)
+    worker_layer = WorkerModelLayer(worker_configs, routing_config=routing_config)
     
     # Initialize Orchestration System
     orchestrator = OrchestrationSystem(

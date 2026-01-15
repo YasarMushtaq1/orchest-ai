@@ -29,25 +29,38 @@ def load_training_data(data_file: str):
         
         subtasks = workflow["subtasks"]
         num_subtasks = len(subtasks)
-        subtask_sequences.append([{"id": st["id"], "description": f"subtask_{st['id']}"} for st in subtasks])
+        max_subtasks = 20  # From config
+        
+        # Create subtask sequence and pad to max_subtasks
+        subtask_seq = [{"id": st["id"], "description": f"subtask_{st['id']}"} for st in subtasks]
+        # Pad with dummy subtasks
+        for i in range(num_subtasks, max_subtasks):
+            subtask_seq.append({"id": i, "description": f"subtask_{i}_padded"})
+        subtask_sequences.append(subtask_seq)
         
         # Extract task types and model selections
         workflow_task_types = [st["task_type"] for st in subtasks]
         workflow_model_selections = [st["model_selection"] for st in subtasks]
         
-        # Convert dependencies to matrix format: [num_subtasks, max_subtasks]
+        # Convert dependencies to matrix format: [max_subtasks, max_subtasks]
         # Each row i represents dependencies for subtask i
         # The dataset expects a 2D list that can be converted to a tensor
-        max_subtasks = 20  # From config
-        dep_matrix = [[0.0] * max_subtasks for _ in range(num_subtasks)]
+        
+        # Pad task_types and model_selections to max_subtasks length
+        # Use -1 for padding (invalid value, will be masked in loss computation)
+        padded_task_types = workflow_task_types + [-1] * (max_subtasks - num_subtasks)
+        padded_model_selections = workflow_model_selections + [-1] * (max_subtasks - num_subtasks)
+        
+        # Pad dependencies matrix to max_subtasks x max_subtasks
+        dep_matrix = [[0.0] * max_subtasks for _ in range(max_subtasks)]
         for i, st in enumerate(subtasks):
             for dep_id in st["dependencies"]:
                 if dep_id < max_subtasks:
                     dep_matrix[i][dep_id] = 1.0
         
-        task_types.append(workflow_task_types)
+        task_types.append(padded_task_types)
         dependencies.append(dep_matrix)
-        model_selections.append(workflow_model_selections)
+        model_selections.append(padded_model_selections)
     
     print(f"Loaded {len(instructions)} workflows")
     avg_subtasks = sum(len(w['subtasks']) for w in workflows) / len(workflows) if workflows else 0
@@ -98,6 +111,15 @@ def main():
     
     # Initialize planner
     planner_config = config["planner"]
+    routing_config = config.get("worker_routing", {})
+    routing_mode = routing_config.get("routing_mode", "type_only")
+    worker_types = routing_config.get("types", [])
+    levels = int(routing_config.get("levels", 5))
+    if worker_types:
+        if routing_mode == "type_level":
+            planner_config["model_selector"]["action_dim"] = len(worker_types) * levels
+        else:
+            planner_config["model_selector"]["action_dim"] = len(worker_types)
     planner = PlannerModel(
         instruction_encoder_config=planner_config["instruction_encoder"],
         task_decomposer_config=planner_config["task_decomposer"],

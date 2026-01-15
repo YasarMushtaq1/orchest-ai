@@ -5,7 +5,7 @@ Orchestration System: Main system that coordinates Planner and Worker models
 import torch
 import time
 import asyncio
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -76,6 +76,9 @@ class OrchestrationSystem:
         instruction: str,
         input_data: Optional[Any] = None,
         return_graph: bool = False,
+        execution_mode: str = "auto",
+        review_callback: Optional[Callable[[int, WorkerOutput, Dict[str, Any]], Optional[Any]]] = None,
+        multi_model_strategy: str = "first",
     ) -> ExecutionResult:
         """
         Execute a complex task by orchestrating multiple models.
@@ -102,6 +105,26 @@ class OrchestrationSystem:
             model_selections = planner_outputs["model_selections"][0]
             adjacency = planner_outputs["workflow_graph"]["adjacency"][0]
             num_subtasks = len(model_selections)
+
+            # Determine actual subtask count using stop probabilities
+            decomposition = planner_outputs.get("decomposition", {})
+            stop_probs = decomposition.get("stop_probs", None)
+            if stop_probs is not None:
+                stop_probs = stop_probs[0].squeeze(-1)
+                actual_subtasks = num_subtasks
+                for i in range(1, num_subtasks):
+                    if stop_probs[i].item() > 0.5:
+                        actual_subtasks = i
+                        break
+                num_subtasks = actual_subtasks
+                model_selections = model_selections[:num_subtasks]
+                adjacency = adjacency[:num_subtasks, :num_subtasks]
+
+            # Task complexities for routing level selection
+            complexities = decomposition.get("complexities", None)
+            task_complexities = None
+            if complexities is not None:
+                task_complexities = complexities[0].squeeze(-1)[:num_subtasks]
             
             # 2. Execute workflow following topological order with parallel execution
             execution_order = self._topological_sort(adjacency, num_subtasks)
@@ -142,9 +165,11 @@ class OrchestrationSystem:
                         self._execute_single_task,
                         task_id,
                         model_selections[task_id],
+                        task_complexities[task_id].item() if task_complexities is not None else None,
                         input_data,
                         task_results,
                         adjacency,
+                        multi_model_strategy,
                     )
                     futures[future] = task_id
                 
@@ -177,14 +202,25 @@ class OrchestrationSystem:
                         # Retry the task
                         worker_output, task_metric = self._execute_single_task(
                             task_id,
-                            model_selections[task_id],
+                        model_selections[task_id],
+                        task_complexities[task_id].item() if task_complexities is not None else None,
                             input_data,
                             task_results,
                             adjacency,
+                        multi_model_strategy,
                         )
                         task_metrics[task_id] = task_metric
                     
                     # Store results
+                    # Optional user review/edit step
+                    if execution_mode != "auto" and review_callback is not None:
+                        try:
+                            edited = review_callback(task_id, worker_output, task_metric)
+                            if edited is not None:
+                                worker_output.content = edited
+                        except Exception as e:
+                            task_metric["review_error"] = str(e)
+
                     task_results[task_id] = worker_output
                     task_outputs[task_id] = worker_output.content
                     completed_tasks.add(task_id)
@@ -381,10 +417,12 @@ class OrchestrationSystem:
     def _execute_single_task(
         self,
         task_id: int,
-        worker_id: int,
+        worker_action: int,
+        task_complexity: Optional[float],
         input_data: Any,
         task_results: Dict[int, WorkerOutput],
         adjacency: torch.Tensor,
+        multi_model_strategy: str = "first",
     ) -> Tuple[WorkerOutput, Dict[str, Any]]:
         """
         Execute a single task with error handling.
@@ -405,15 +443,23 @@ class OrchestrationSystem:
             
             # Execute task
             task_description = f"subtask_{task_id}"
-            worker_output = self.worker_layer.execute_task(
-                worker_id=worker_id,
+            selection = self.worker_layer.decode_action(
+                action_index=worker_action,
+                complexity=task_complexity,
+            )
+            worker_output = self.worker_layer.execute_task_for_selection(
+                selection=selection,
                 task=task_description,
                 data=task_input,
+                multi_model_strategy=multi_model_strategy,
             )
             
             task_metric = {
                 "task_id": task_id,
-                "worker_id": worker_id,
+                "worker_action": worker_action,
+                "worker_type": selection.worker_type,
+                "worker_level": selection.level,
+                "worker_models": selection.model_names,
                 "latency_ms": worker_output.latency_ms,
                 "cost": worker_output.cost,
                 "success": worker_output.success,
@@ -432,7 +478,7 @@ class OrchestrationSystem:
                 error=str(e),
             ), {
                 "task_id": task_id,
-                "worker_id": worker_id,
+                "worker_action": worker_action,
                 "error": str(e),
                 "timestamp": task_start_time,
             }

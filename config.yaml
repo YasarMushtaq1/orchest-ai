@@ -21,7 +21,7 @@ planner:
     
   model_selector:
     state_dim: 512
-    action_dim: 8  # number of available worker models
+    action_dim: 9  # number of worker types (routing_mode=type_only)
     hidden_dims: [256, 128]
     dropout: 0.1
 
@@ -66,6 +66,92 @@ worker_models:
     model_type: "data"
     cost_per_token: 0.0005
     latency_ms: 200
+  - name: "presentation-builder"
+    model_type: "presentation"
+    cost_per_token: 0.002
+    latency_ms: 350
+
+# Worker routing (user-mappable)
+# The planner selects a worker type (action index) and the system derives a level
+# from task complexity (1-5). Users can map multiple models to each level.
+worker_routing:
+  routing_mode: "type_only"  # type_only or type_level
+  levels: 5
+  types:
+    - "text"
+    - "voice"
+    - "analytics"
+    - "video"
+    - "audio"
+    - "vision"
+    - "code"
+    - "document"
+    - "presentation"
+  mapping:
+    text:
+      1: ["gpt-3.5-turbo"]
+      2: ["gpt-3.5-turbo", "llama-3-8b"]
+      3: ["llama-3-8b", "gpt-3.5-turbo"]
+      4: ["gpt-4"]
+      5: ["gpt-4"]
+    voice:
+      1: ["whisper-base"]
+      2: ["whisper-base"]
+      3: ["whisper-base"]
+      4: ["whisper-base"]
+      5: ["whisper-base"]
+    analytics:
+      1: ["data-analyzer"]
+      2: ["data-analyzer"]
+      3: ["data-analyzer"]
+      4: ["data-analyzer"]
+      5: ["data-analyzer"]
+    video:
+      1: ["clip-vit-base"]
+      2: ["clip-vit-base"]
+      3: ["clip-vit-base"]
+      4: ["clip-vit-base"]
+      5: ["clip-vit-base"]
+    audio:
+      1: ["whisper-base"]
+      2: ["whisper-base"]
+      3: ["whisper-base"]
+      4: ["whisper-base"]
+      5: ["whisper-base"]
+    vision:
+      1: ["clip-vit-base"]
+      2: ["clip-vit-base"]
+      3: ["clip-vit-base"]
+      4: ["clip-vit-base"]
+      5: ["clip-vit-base"]
+    code:
+      1: ["code-llama-7b"]
+      2: ["code-llama-7b"]
+      3: ["code-llama-7b"]
+      4: ["code-llama-7b"]
+      5: ["code-llama-7b"]
+    document:
+      1: ["document-processor"]
+      2: ["document-processor"]
+      3: ["document-processor"]
+      4: ["document-processor"]
+      5: ["document-processor"]
+    presentation:
+      1: ["presentation-builder"]
+      2: ["presentation-builder"]
+      3: ["presentation-builder"]
+      4: ["presentation-builder"]
+      5: ["presentation-builder"]
+  # Optional keyword routing for rule-based simulation in GUI
+  keywords:
+    presentation: ["presentation", "slides", "deck"]
+    video: ["video", "animation", "clip", "movie"]
+    vision: ["image", "picture", "photo", "render"]
+    audio: ["audio", "sound", "music"]
+    voice: ["voice", "speech", "transcribe"]
+    analytics: ["analyze", "analysis", "data", "chart", "plot"]
+    document: ["document", "report", "pdf", "doc"]
+    code: ["code", "script", "program", "bug"]
 
 # Training Configuration
 training:
